@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>画间 / 离线音画时间轴</title>
+<style>
+:root{--paper:#f8f4ed;--ink:#163c3b;--sage:#316c61;--terracotta:#bb614c;--line:#dce5de;--cream:#f7e8d4}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Noto Sans SC",sans-serif}
+main{max-width:920px;margin:0 auto;padding:28px 22px 50px}.eyebrow{font-size:11px;letter-spacing:.15em;font-weight:700;color:var(--sage)}h1{font-size:30px;margin:12px 0 6px}p{color:#6b7773}.card{background:#fff;border:1px solid var(--line);border-radius:22px;padding:18px;margin:18px 0;box-shadow:0 5px 26px #163c3b08}
+.img{aspect-ratio:16/9;width:100%;object-fit:contain;background:var(--ink);border-radius:14px}.controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+button{border:0;background:var(--sage);color:white;padding:12px 18px;border-radius:12px;font:inherit;font-weight:650;cursor:pointer;min-height:46px}
+button.secondary{background:var(--cream);color:var(--ink)}input[type=range]{flex:1;min-width:210px;accent-color:var(--sage)}
+.meta{color:#71807b;font-size:12px}.events{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.event{width:100%;text-align:left;background:#f1f6f2;color:var(--ink);font-weight:500}
+code{font-size:.85em;overflow-wrap:anywhere}@media(max-width:600px){h1{font-size:26px}.card{padding:12px}}
+</style></head><body><main>
+<div class="eyebrow">HUAJIAN / OFFLINE REVIEW</div><h1>把声音与画面，放回同一个时刻。</h1>
+<p>请先将整个 ZIP 解压到同一目录，再打开此文件。播放器使用每段音频的 <code>start_ms</code> 与抽帧的请求时间对齐，不生成连续视频。</p>
+<section class="card">
+<img id="frame" class="img" alt="本时刻的绘画过程抽帧（若无画面将留空）"/>
+<div class="controls"><button id="play">▶ 播放</button><button id="restart" class="secondary">↺ 开始</button><input id="seek" type="range" min="0" max="1" value="0" step="100"><strong id="clock">00:00:00</strong></div>
+<div id="current" class="meta" style="margin-top:10px"></div><audio id="audio" preload="metadata"></audio>
+</section><section class="card"><strong>事件标记 · 点击时间定位</strong><p class="meta">时间是相对于完整原始视频的全局时间。没有音频时仍可沿时间轴查看抽帧。</p><div class="events" id="events"></div></section>
+<section class="card"><strong>Qwen3 语音 / 情绪 · 点击回听</strong>
+<p class="meta">下列是模型对声音的分类，并非心理诊断。没有身份真值时显示 unknown。</p>
+<div class="events" id="speech"></div></section>
+<p class="meta">注意：播放器不能替代原始视频；精确的帧 PTS 未被采集。若某 ZIP 不含某段音频，则不会凭空补齐。</p>
+</main><script>
+'use strict';
+const DATA=__TIMELINE_JSON__;
+const assets=DATA.media||[],audios=assets.filter(a=>a.type.startsWith('audio')).sort((a,b)=>a.start_ms-b.start_ms),frames=assets.filter(a=>a.type==='frame_requested').sort((a,b)=>a.start_ms-b.start_ms),events=DATA.events||[],speech=DATA.speech_segments||[];
+const dom=id=>document.getElementById(id),player=dom('audio'),seek=dom('seek'),play=dom('play');
+const start=DATA.part_start_ms||0,end=Math.max(start+1,DATA.part_end_ms||0),clock=t=>{let s=Math.floor(Math.max(0,t)/1000);return [Math.floor(s/3600),Math.floor((s/60)%60),s%60].map(x=>String(x).padStart(2,'0')).join(':')};
+let current=start,active=-1,desiredPlay=false;
+seek.min=String(start);seek.max=String(end);seek.value=String(start);
+function audioIndex(t){return audios.findIndex(a=>t>=a.start_ms && t<a.end_ms)}
+function paint(t){current=Math.max(start,Math.min(end,Math.round(t)));seek.value=String(current);dom('clock').textContent=clock(current);let selected=null;
+for(let i=0;i<frames.length;i++){if(frames[i].start_ms<=current)selected=frames[i];else break}if(!selected&&frames.length)selected=frames[0];
+if(selected){if(dom('frame').dataset.path!==selected.path){dom('frame').src='../'+selected.path;dom('frame').dataset.path=selected.path;}}
+const a=audioIndex(current);dom('current').textContent='全局 '+clock(current)+' · '+(a<0?'当前时刻无可用音轨':'音轨 '+audios[a].path)+' · 画面为抽样帧';}
+function go(t,autoplay=desiredPlay){paint(t);let id=audioIndex(current);
+if(id<0 && autoplay){const next=audios.find(a=>a.start_ms>current);if(next){paint(next.start_ms);id=audioIndex(current);}}
+if(!autoplay){desiredPlay=false;player.pause();play.textContent='▶ 播放';}
+if(id<0){player.pause();active=-1;desiredPlay=false;play.textContent='▶ 播放';return;}
+const local=Math.max(0,(current-audios[id].start_ms)/1000);
+const afterSeek=()=>{try{player.currentTime=local}catch(e){}if(autoplay){desiredPlay=true;play.textContent='Ⅱ 暂停';player.play().catch(()=>{desiredPlay=false;play.textContent='▶ 播放';});}};
+if(id!==active){active=id;player.pause();player.src='../'+audios[id].path;player.addEventListener('loadedmetadata',afterSeek,{once:true});player.load();}
+else afterSeek();}
+seek.addEventListener('input',()=>go(Number(seek.value),false));
+play.addEventListener('click',()=>{if(desiredPlay){desiredPlay=false;player.pause();play.textContent='▶ 播放';}else go(current,true)});
+dom('restart').addEventListener('click',()=>go(start,desiredPlay));
+player.addEventListener('timeupdate',()=>{if(active>=0)paint(audios[active].start_ms+Math.round(player.currentTime*1000))});
+player.addEventListener('ended',()=>{if(!desiredPlay)return;let next=audios[active+1];if(next)go(next.start_ms,true);else{desiredPlay=false;play.textContent='▶ 播放';}});
+const ebox=dom('events');events.forEach(e=>{const b=document.createElement('button');b.className='event';b.textContent='⏱ '+clock(e.media_time_ms||0)+'  '+(e.event_type||'现场标记')+(e.observer_note?'  — '+e.observer_note:'');b.onclick=()=>go(e.media_time_ms||0,desiredPlay);ebox.append(b)});
+if(!events.length){const p=document.createElement('p');p.textContent='此分包的时间范围内没有人工事件标记。';ebox.append(p)}
+const sbox=dom('speech');speech.forEach(s=>{const b=document.createElement('button');b.className='event';
+b.textContent=(s.start_ms==null?'未知时间':clock(s.start_ms))+' · '+(s.speaker_id||'unknown')+' · ['+(s.emotion||'未标注')+'] '+(s.transcript||'');
+b.onclick=()=>{if(s.start_ms!=null)go(s.start_ms,desiredPlay)};sbox.append(b)});
+if(!speech.length){const p=document.createElement('p');p.textContent='此分包没有可用的已完成语音识别结果。';sbox.append(p)}
+paint(start);
+</script></body></html>

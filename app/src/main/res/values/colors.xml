@@ -1,0 +1,12 @@
+<resources>
+    <color name="paper">#F8F4ED</color>
+    <color name="ink">#163C3B</color>
+    <color name="sage">#316C61</color>
+    <color name="sage_light">#E5EFE8</color>
+    <color name="subtext">#6B7773</color>
+    <color name="white">#FFFFFF</color>
+    <color name="terracotta">#BB614C</color>
+    <color name="cream">#F7E8D4</color>
+    <color name="line">#DDE4DB</color>
+    <color name="record">#E06952</color>
+</resources>
